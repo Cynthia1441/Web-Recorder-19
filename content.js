@@ -155,7 +155,7 @@ function logEvent(type, details = {}) {
         });
         console.log(`[DIAGNOSTIC] logEvent successfully sent message to background for type: ${type}.`);
     } catch (err) {
-        console.error(`[Content] logEvent error sending message for type: ${type}:`, err, 'Details:', details);
+        console.error(`[Content] logEvent error    sending message for type: ${type}:`, err, 'Details:', details);
     }
 }
 
