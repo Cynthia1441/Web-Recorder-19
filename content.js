@@ -165,6 +165,32 @@ function getElementLocator(el) {
         return { id: null, css: null, xpath: null };
     }
 
+    // Helper function to escape strings for XPath literals
+    function escapeXPathStringLiteral(value) {
+        if (value.includes("'")) {
+            // Contains single quotes
+            if (value.includes('"')) {
+                // Contains both single and double quotes, use concat()
+                const parts = value.split("'");
+                let xpathString = "concat(";
+                for (let i = 0; i < parts.length; i++) {
+                    xpathString += `'${parts[i]}'`; // Parts themselves don't have single quotes.
+                    if (i < parts.length - 1) {
+                        xpathString += ", \"'\", "; // The literal string for a single quote in XPath is "'"
+                    }
+                }
+                xpathString += ")";
+                return xpathString;
+            } else {
+                // Contains single quotes, but no double quotes. Use double quotes for the XPath literal.
+                return `"${value}"`;
+            }
+        } else {
+            // Contains no single quotes. Use single quotes for the XPath literal (handles no quotes or only double quotes).
+            return `'${value}'`;
+        }
+    }
+
     const foundId = el.id ? el.id : null;
 
     // CSS Selector Generation
@@ -198,11 +224,10 @@ function getElementLocator(el) {
         // Priority A: span with 'item-text' class and specific text() - MOVED UP for higher priority
         // Generates XPath like: //span[contains(@class,'item-text') and normalize-space()='ActualText']
         if (tagName === 'span' && el.classList && el.classList.contains('item-text')) {
-            const textContent = el.textContent ? el.textContent.trim() : '';
-            // Ensure text is not empty and safe for XPath (no single quotes)
-            // 'item-text' itself is safe for contains(@class, 'item-text')
-            if (textContent && !textContent.includes("'")) {
-                return `//${tagName}[contains(@class,'item-text') and normalize-space()='${textContent}']`;
+            const textContent = el.textContent ? el.textContent.trim() : ''; // .trim() is important
+            if (textContent) { // Check if textContent is not an empty string
+                const escapedText = escapeXPathStringLiteral(textContent);
+                return `//${tagName}[contains(@class,'item-text') and normalize-space()=${escapedText}]`;
             }
         }
 
