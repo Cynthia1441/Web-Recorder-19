@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SteepGraph Web Recorder</title>
+  <link rel="icon" href="icon.jpeg.jpg" type="image/jpeg/jpg">
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #f5f5f5;
+      color: #333;
+      width: 500px;
+      max-height: 600px;
+      overflow-y: auto;
+    }
+    .container {
+      margin: 0 auto;
+    }
+    header {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    h1 {
+      color: #2c3e50;
+      margin: 0;
+      font-size: 24px;
+    }
+    .logo {
+      font-weight: bold;
+      color: #3498db;
+    }
+    .controls {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 20px;
+      gap: 10px;
+    }
+    button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: all 0.3s;
+      flex: 1;
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .primary-btn {
+      background-color: #3498db;
+      color: white;
+    }
+    .primary-btn:hover:not(:disabled) {
+      background-color: #2980b9;
+    }
+    .primary-btn.recording {
+      background-color: #2ecc71;
+    }
+    .secondary-btn {
+      background-color: #e74c3c;
+      color: white;
+    }
+    .secondary-btn:hover:not(:disabled) {
+      background-color: #c0392b;
+    }
+    .neutral-btn {
+      background-color: #ecf0f1;
+      color: #34495e;
+    }
+    .neutral-btn:hover:not(:disabled) {
+      background-color: #bdc3c7;
+    }
+    .event-list {
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      overflow: hidden;
+      background-color: white;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .event-header {
+      display: grid;
+      grid-template-columns: 100px 100px 1fr;
+      background-color: #f8f9fa;
+      padding: 12px 15px;
+      font-weight: bold;
+      border-bottom: 1px solid #ddd;
+      position: sticky;
+      top: 0;
+    }
+    .event-item {
+      display: grid;
+      grid-template-columns: 100px 100px 1fr;
+      padding: 12px 15px;
+      border-bottom: 1px solid #eee;
+      transition: background-color 0.2s;
+      cursor: pointer;
+    }
+    .event-item:hover {
+      background-color: #f5f7fa;
+    }
+    .event-item:last-child {
+      border-bottom: none;
+    }
+    /* Event type colors */
+    .event-item.click { border-left: 4px solid #2ecc71; }
+    .event-item.input { border-left: 4px solid #9b59b6; }
+    .event-item.change { border-left: 4px solid #f39c12; }
+    .event-item.submit { border-left: 4px solid #e74c3c; }
+    .event-item.keyboard { border-left: 4px solid #3498db; }
+    .event-item.navigation { border-left: 4px solid #1abc9c; }
+    .event-item.pageload { border-left: 4px solid #34495e; }
+    
+    .event-type {
+      font-weight: 500;
+    }
+    .event-time {
+      color: #7f8c8d;
+      font-size: 14px;
+    }
+    .event-details {
+      overflow-wrap: break-word;
+      font-size: 13px;
+    }
+    .no-events {
+      padding: 30px;
+      text-align: center;
+      color: #7f8c8d;
+      font-style: italic;
+    }
+    .expanded-details {
+      display: none;
+      background-color: #f9f9f9;
+      padding: 10px 15px;
+      border-top: 1px dashed #ddd;
+      font-family: 'Consolas', monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+      overflow-x: auto;
+    }
+    .message {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%) translateY(100%);
+      background-color: rgba(52, 152, 219, 0.9);
+      color: white;
+      padding: 10px 20px;
+      border-radius: 4px;
+      transition: transform 0.3s ease;
+      z-index: 1000;
+    }
+    .message.show {
+      transform: translateX(-50%) translateY(0);
+    }
+    .status-indicator {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      margin-right: 5px;
+      background-color: #e74c3c;
+    }
+    .status-indicator.recording {
+      background-color: #2ecc71;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <img src="icon.jpeg.jpg" alt="SteepGraph Icon" style="width: 50px; height: 50px; margin-bottom: 10px;">
+      <h1>SteepGraph Web Recorder</h1>
+      <p class="logo">Capture and Export Web Activity</p>
+    </header>
+    
+    <div class="controls">
+      <button class="primary-btn" id="startButton">Start Recording</button>
+      <button class="secondary-btn" id="stopButton" disabled>Stop Recording</button>
+      <button class="neutral-btn" id="pauseButton" disabled>Pause Recording</button> <!-- Added Pause Button -->
+      <button class="neutral-btn" id="viewButton">View Events</button> 
+      <button class="neutral-btn" id="exportButton">Export XML</button> 
+    </div>
+
+    <div class="event-list">
+      <div class="event-header">
+        <div>Type</div>
+        <div>Time</div>
+        <div>Details</div>
+      </div>
+      <div class="no-events">No events recorded yet.</div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

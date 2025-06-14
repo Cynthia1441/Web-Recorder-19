@@ -1,0 +1,48 @@
+{
+  "manifest_version": 3,
+  "name": "SteepGraph Web Recorder",
+  "description": "Capture and export web activity events in XML format.",
+  "version": "1.0",
+  "permissions": [
+    "tabs",
+    "activeTab",
+    "webNavigation",
+    "storage",
+    "scripting",
+    "downloads",
+    "windows",
+    "contextMenus"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon.jpeg.jpg",
+      "48": "icon.jpeg.jpg",
+      "128": "icon.jpeg.jpg"
+    }
+  },
+  "icons": {
+    "16": "icon.jpeg.jpg",
+    "48": "icon.jpeg.jpg",
+    "128": "icon.jpeg.jpg"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_end",
+      "all_frames": true,
+      "match_about_blank": true
+    }
+  ],
+  "web_accessible_resources": [{
+    "resources": ["content.js"],
+    "matches": ["<all_urls>"]
+  }]
+}
