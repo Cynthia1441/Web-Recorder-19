@@ -350,7 +350,10 @@ document.addEventListener('DOMContentLoaded', function () {
                         timestamp: relativeTimestamp
                     };
                     assignLocatorsToAttributes(eventAttributes, iframeResolvedLocs); // Populates eventAttributes.locatorPairs
-                    // Removed: if (e.iframeSrc) eventAttributes.iframe = escapeXml(e.iframeSrc);
+                    // Restore iframe context: 'e' is event.details, which includes iframeSrc for iframeClick events
+                    if (e.iframeSrc) {
+                        eventAttributes.iframe = escapeXml(e.iframeSrc);
+                    }
                     break;
 
                 case 'input':
@@ -466,14 +469,13 @@ document.addEventListener('DOMContentLoaded', function () {
                     break;
 
                 case 'switchToFrame': // Event logged when focus enters an iframe's content
-                    tagName = 'SwitchToFrame'; 
-                    const switchToFrameLocs = e.locators || {};
+                    tagName = 'SwitchToFrame';
                     eventAttributes = {
-                        src: escapeXml(e.src || ''), // Include iframe src
-                        timestamp: relativeTimestamp
+                        // Prioritize e.frameName (path from inside iframe, logged on click)
+                        // Fallback to e.name (path of iframe elements from parent, logged on focus)
+                        name: (e.frameName || e.name || '') // Leave => as-is, do not escape
                     };
-                    if (e.name) eventAttributes.name = escapeXml(e.name); // Add name attribute if present
-                    assignLocatorsToAttributes(eventAttributes, switchToFrameLocs);
+                    // Timestamp and other locators are intentionally removed as per the request.
                     break;
 
                 case 'switchToParentFrame': // New event type for switching to parent frame
