@@ -276,7 +276,12 @@ document.addEventListener('DOMContentLoaded', function () {
 
         // Priority 2: XPath for locatorType2
         if (locators.xpath && String(locators.xpath).trim() !== '') {
-            currentLocatorPairs.push({ type: 'xpath', expression: String(locators.xpath) });
+            let xpathExpression = String(locators.xpath);
+            // Apply transformation if XPath starts with // and does not end with an index like [1]
+            if (xpathExpression.startsWith('//') && !/\[\d+\]$/.test(xpathExpression)) {
+                xpathExpression = `(${xpathExpression})[2]`;
+            }
+            currentLocatorPairs.push({ type: 'xpath', expression: xpathExpression });
         }
         // Priority 3: CSS for locatorType3
         if (locators.css && String(locators.css).trim() !== '') {
