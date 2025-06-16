@@ -277,10 +277,7 @@ document.addEventListener('DOMContentLoaded', function () {
         // Priority 2: XPath for locatorType2
         if (locators.xpath && String(locators.xpath).trim() !== '') {
             let xpathExpression = String(locators.xpath);
-            // Apply transformation if XPath starts with // and does not end with an index like [1]
-            if (xpathExpression.startsWith('//') && !/\[\d+\]$/.test(xpathExpression)) {
-                xpathExpression = `(${xpathExpression})[2]`;
-            }
+            // The transformation that added "[2]" to non-indexed XPaths has been removed.
             currentLocatorPairs.push({ type: 'xpath', expression: xpathExpression });
         }
         // Priority 3: CSS for locatorType3
@@ -335,7 +332,7 @@ document.addEventListener('DOMContentLoaded', function () {
             switch (event.type) {
                 case 'navigation':
                 case 'pageload':
-                    includeTag = false; // Prevent OpenURL tag generation
+                    includeTag = false; // Prevent tag generation
                     break;
 
                 case 'click':
@@ -406,8 +403,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
                 case 'maximize':
                 case 'windowMaximize':
-                    tagName = 'MaximiseWindow'; // Note: Standard XML might prefer MaximiseWindow or MaximizeWindow
-                    eventAttributes = {}; // No attributes as per example
+                    includeTag = false; // Prevent tag generation for window maximize
                     break;
 
                 case 'windowMinimize':

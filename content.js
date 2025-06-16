@@ -215,81 +215,71 @@ function getElementLocator(el) {
         foundCss = tagNameLower; // Tag name if no class attribute or it's not a string
     }
 
-    function generateXPathForElement(el) {
+    function generateIndexedXPath(el) {
         if (!el || el.nodeType !== Node.ELEMENT_NODE) {
             return null;
         }
 
         const tagName = el.tagName.toLowerCase();
 
-        // Priority A: span with 'item-text' class and specific text() - MOVED UP for higher priority
-        // Generates XPath like: //span[contains(@class,'item-text') and normalize-space()='ActualText']
+        // Priority 1: Specific span with 'item-text' class and text content
         if (tagName === 'span' && el.classList && el.classList.contains('item-text')) {
-            const textContent = el.textContent ? el.textContent.trim() : ''; // .trim() is important
-            if (textContent) { // Check if textContent is not an empty string
-                const escapedText = escapeXPathStringLiteral(textContent);
+            const textContent = el.textContent ? el.textContent.trim() : '';
+            if (textContent) { // Only apply if textContent is not an empty string
+                const escapedText = escapeXPathStringLiteral(textContent); // Uses the helper function from getElementLocator's scope
                 return `//${tagName}[contains(@class,'item-text') and normalize-space()=${escapedText}]`;
             }
+            // If it's a span.item-text but has no text, it will fall through to the general logic below.
         }
 
-        // Priority B: Specific class 'profile' (formerly Priority 0)
-        if (el.classList && el.classList.contains('profile')) {
-            // Ensure 'profile' doesn't have single quotes (it doesn't, but good practice)
-            if (!'profile'.includes("'")) {
-                return `//${tagName}[contains(@class,'profile')]`;
+        // Priority 2: Class-based XPath (non-indexed, matches user's requested format e.g., for icon clicks)
+        // Generates XPath like: //tag[contains(@class, 'actualFirstClass')]
+        if (el.classList && el.classList.length > 0) {
+            const firstClass = el.classList[0]; // Use the first class found
+            if (firstClass) { // Should be true if length > 0
+                const escapedClassName = escapeXPathStringLiteral(firstClass); // Use existing helper
+                return `//${tagName}[contains(@class, ${escapedClassName})]`;
             }
         }
 
-        // Priority C: Specific class 'item-text' and 'name' attribute (formerly Priority 0.5)
-        if (el.classList && el.classList.contains('item-text') && el.hasAttribute('name')) {
-            const nameValue = el.getAttribute('name');
-            // Ensure 'item-text' is safe (it is) and nameValue is not null/empty and safe for XPath
-            // 'item-text' does not contain single quotes, so it's safe for contains(@class, 'item-text')
-            if (nameValue && nameValue.trim() !== '' && !nameValue.includes("'") && !nameValue.includes('"')) {
-                return `//${tagName}[contains(@class,'item-text') and @name='${nameValue}']`;
-            }
-        }
+        // Priority 3: Fallback to indexed XPath by tag name if no classes or above conditions not met
+        // Generates XPath like: (//tagname)[index]
+        try {
+            const simpleTagExpr = `//${tagName}`;
+            const doc = el.ownerDocument || document; // Use element's document, fallback to global
+            const contextNode = doc; 
 
-        // Priority D: ID (formerly Priority 1)
-        // Ensure ID does not contain single or double quotes for the XPath expression
-        if (el.id && !el.id.includes("'") && !el.id.includes('"')) {
-            return `//${tagName}[@id='${el.id}']`;
-        }
+            const result = doc.evaluate(
+                simpleTagExpr,
+                contextNode,
+                null,
+                XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
+                null
+            );
 
-        // Priority 2: Class using contains()
-        let classAttributeValue = null;
-        if (el.hasAttribute('class')) { // Check existence first
-            classAttributeValue = el.getAttribute('class');
-        }
-        // Fallback for SVG or other cases if getAttribute returns null but .className is informative
-        if (!classAttributeValue && typeof el.className === 'string' && el.className.trim() !== '') {
-            classAttributeValue = el.className;
-        } else if (!classAttributeValue && el.className && typeof el.className === 'object' &&
-                   Object.prototype.hasOwnProperty.call(el.className, 'baseVal') &&
-                   typeof el.className.baseVal === 'string' && el.className.baseVal.trim() !== '') {
-            classAttributeValue = el.className.baseVal;
-        }
-
-        if (classAttributeValue) {
-            const trimmedClasses = classAttributeValue.trim();
-            if (trimmedClasses !== '') {
-                // Split classes and take the first one that doesn't contain a single quote
-                const classes = trimmedClasses.split(/\s+/);
-                for (const cls of classes) {
-                    if (cls && !cls.includes("'")) { // Ensure class is not empty and no single quote
-                        return `//${tagName}[contains(@class,'${cls}')]`;
+            for (let i = 0; i < result.snapshotLength; i++) {
+                if (result.snapshotItem(i) === el) {
+                    // If more than one element matches the simpleTagExpr, use indexing.
+                    // If only one, the non-indexed version is fine.
+                    if (result.snapshotLength > 1) {
+                        return `(${simpleTagExpr})[${i + 1}]`;
+                    } else {
+                        return simpleTagExpr; // Only one such tag, no index needed
                     }
                 }
             }
+            // Should ideally find the element. If not (e.g., element detached),
+            // return the simple non-indexed expression as a last resort.
+            return simpleTagExpr;
+        } catch (err) {
+            console.warn('[Content getElementLocator] Error generating indexed XPath by tag name:', err);
+            return `//${tagName}`; // Absolute fallback in case of error
         }
-        // Priority E: Tag name only (fallback, formerly Priority 3)
-        return `//${tagName}`;
     }
-    const foundXpath = generateXPathForElement(el);
+    const foundXpath = generateIndexedXPath(el);
 
     return { id: foundId, css: foundCss, xpath: foundXpath };
 }
-
 // Track input value changes
 const inputLastValueMap = new WeakMap();
 
