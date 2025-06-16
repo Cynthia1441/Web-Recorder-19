@@ -297,15 +297,21 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Convert events to XML format
     function convertEventsToXml(events) {
+        const firstUrlEvent = events.find(e => e.type === 'navigation' || e.type === 'pageload');
+        const currentUrl = firstUrlEvent?.details?.url || '';
+        const platform = /(3dexperience|3ds\.com|enovia|delmia|\/3dspace\/|\/emxNavigator\.jsp)/i.test(currentUrl) ? '3DEXP' : 'Generic';
+
         const SCROLL_EVENT_WAIT_TIME_MS = 500; // Default wait time in ms after a scroll event
 
         // XML header
         let xml = `<?xml version="1.0" encoding="UTF-8" standalone="no" ?>\n`;
         // TestCase opening tag with namespaces on separate lines
         xml += `<TestCase xmlns="https://www.steepgraph.com" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"\nxsi:schemaLocation="https://www.steepgraph.com ../../../resources/xsd/TestAutomationFramework.xsd">\n \n`;
-        // Add Login tag
-        xml += `    <Login username="$csv{username}" password="$csv{password}" />\n \n`;
-
+        if (platform === '3DEXP') {
+            xml += `    <Login username="$csv{username}" password="$csv{password}" />\n \n`;
+        } else {
+            xml += `    <OpenURL\n        url="${escapeXml(currentUrl)}"\n        timestamp="1"\n    />\n\n`;
+        }
 
         if (!events || events.length === 0) {
             xml += `</TestCase>\n`;
@@ -369,7 +375,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     } else {
                         tagName = 'InputText'; 
                         eventAttributes = {
-                            value: escapeXml(e.value || ''), // The actual text to input
+                            input: escapeXml(e.value || ''), // The actual text to input
                             timestamp: relativeTimestamp // Add timestamp for InputText
                         };
                         // Add the 'id' attribute specifically if present in locators
@@ -653,11 +659,12 @@ document.addEventListener('DOMContentLoaded', function () {
                 // Both InputText and other tags now manage their trailing newlines (typically \n\n after the tag or last comment).
             } // Closing 'if (includeTag && tagName)'
         });
-
-        // Add Logout tag
-        xml += `    <Logout/>\n \n`;
-
-        xml += `</TestCase>\n \n`;
+        
+        // Add Logout tag conditionally
+        if (platform === '3DEXP') {
+            xml += `    <Logout/>\n`;
+        }
+        xml += `</TestCase>\n`;
         return xml;
     }
 
