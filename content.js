@@ -1,5 +1,4 @@
 let isEffectivelyRecording = false; // Renamed to clarify its purpose
-let lastFramePath = null; // To track the last iframe path logged from a click
 
 // Check recording state from background on load
 chrome.runtime.sendMessage({ action: 'checkRecordingState' }, (response) => {
@@ -412,18 +411,12 @@ document.addEventListener('click', e => { // Listen in capture phase
         return;
     }
 
-    // If the click is happening inside an iframe, log a switchToFrame event
-    // if the frame context has changed since the last click in an iframe.
     if (window.self !== window.top) {
-        // window.frameElement is the <iframe> element in the parent document
-        const framePath = getIframePath(window.frameElement); 
-        if (framePath && framePath !== lastFramePath) {
-            lastFramePath = framePath;
-            logEvent('switchToFrame', {
-                name: framePath
-            });
-            console.warn('[DEBUG] Logged switchToFrame from click:', framePath);
-        }
+        // When a click occurs inside an iframe, the focus/mousedown listeners 
+        // within that iframe will post 'SteepGraphRecorder_EnteredIframe' to the top window.
+        // The top window's message listener is responsible for logging 'switchToFrame'
+        // and uses 'topLastLoggedFramePath' to prevent duplicates.
+        // Therefore, the iframe itself no longer needs to log 'switchToFrame' on click.
     }
 
     try {
@@ -735,7 +728,6 @@ function cleanupGenericElementScrollListeners() {
 }
 
 // --- Iframe Focus Tracking ---
-let activeIframeElement = null; // Stores the <iframe> HTML element from the parent document whose content is currently focused
 const iframeScrollHandlers = new WeakMap(); // Store scroll handlers and state for iframes
 const iframeClickHandlers = new WeakMap(); // Store click handlers for iframes
 
@@ -804,20 +796,6 @@ function getIframePath(iframe) {
     return path.join('=>'); // Use raw string, escape later in convertToXml
 }
 
-// Helper to log switch to frame event
-function logSwitchToFrame(iframe) {
-    if (!iframe || !isEffectivelyRecording) return;
-    
-    console.log('[Content Iframe Debug] Logging switchToFrame for:', {
-        id: iframe.id,
-        name: iframe.name
-    });
-
-    logEvent('switchToFrame', {
-        name: getIframePath(iframe)
-    });
-}
-
 // Enhanced focus tracking for iframes
 window.addEventListener('focus', (event) => {
     if (!isEffectivelyRecording) {
@@ -836,92 +814,109 @@ window.addEventListener('focus', (event) => {
     const focusedElement = event.target;
     const ownerDoc = focusedElement.ownerDocument;
 
-    if (ownerDoc === window.document) {
-        // Focus is in the main document
-        if (activeIframeElement) {
-            console.log('[Content Iframe Debug] Switching to parent frame from:', {
-                iframeSrc: activeIframeElement.src,
-                iframeId: activeIframeElement.id,
-                iframeName: activeIframeElement.name
-            });
-            
-            logEvent('switchToParentFrame', {
-                timestamp: Date.now(),
-                iframeSrc: activeIframeElement.src,
-                iframeLocators: getIframeLocators(activeIframeElement)
-            });
-            activeIframeElement = null;
+    // This global focus listener is now split:
+    // 1. If in an iframe, it messages the top window.
+    // 2. If in the top window, it handles switching to parent frame if an iframe was active.
+
+    if (window.self !== window.top) { // Executing inside an iframe
+        // If focus is gained within this iframe's document, inform the top window.
+        const currentIframeElement = window.frameElement;
+        if (currentIframeElement) {
+            const framePath = getIframePath(currentIframeElement);
+            const locators = getIframeLocators(currentIframeElement);
+            console.log('[Content Iframe] Focus event in iframe, posting EnteredIframe. Path:', framePath);
+            window.top.postMessage({
+                type: 'SteepGraphRecorder_EnteredIframe',
+                framePath: framePath,
+                iframeLocators: locators,
+                iframeSrc: currentIframeElement.src,
+                timestamp: Date.now()
+            }, '*');
         }
-    } else if (ownerDoc && ownerDoc.defaultView && ownerDoc.defaultView.frameElement) {
-        // Focus is inside an iframe
-        const currentIframe = ownerDoc.defaultView.frameElement;
-        
-        console.log('[Content Iframe Debug] Focus in iframe:', {
-            iframeSrc: currentIframe.src,
-            iframeId: currentIframe.id,
-            iframeName: currentIframe.name,
-            isActive: currentIframe === activeIframeElement
-        });
-        
-        if (currentIframe && currentIframe !== activeIframeElement) {
-            // Log switch to frame before updating active iframe
-            logSwitchToFrame(currentIframe);
-            activeIframeElement = currentIframe;
-
-            // Set up click handler if not already done
-            // This handler is attached when 'currentIframe' gains focus.
-            // Its job is to log clicks *within* this now-focused iframe.
-            if (isIframeAccessible(currentIframe) && !iframeClickHandlers.has(currentIframe)) {
-                console.log('[Content Iframe Debug] Setting up click handler via global focus for iframe:', currentIframe.src);
-                try {
-                    const iframeDoc = currentIframe.contentDocument;
-                    // 'currentIframe' is the specific iframe that received focus and got this listener.
-                    const iframeContentClickHandler = (clickEventInIframe) => {
-                        if (!isEffectivelyRecording) {
-                            console.log('[Content Iframe Debug] Not recording, ignoring click in iframe (handler from global focus)');
-                            return;
-                        }
-                        
-                        // 'currentIframe' (from the outer scope of the focus listener) is the iframe
-                        // this handler is attached to.
-                        console.log('[Content Iframe Debug] Click in iframe (handler from global focus):', {
-                            iframeSrc: currentIframe.src,
-                            targetTagName: clickEventInIframe.target.tagName,
-                        });
-                        
-                        const clickTarget = clickEventInIframe.target;
-                        const clickLocators = getElementLocator(clickTarget); // Locators of element *inside* iframe
-                        
-                        logEvent('iframeClick', {
-                            iframeSrc: currentIframe.src, // src of the iframe itself
-                            locators: clickLocators,      // locators of the clicked element *within* the iframe
-                            targetDetails: {
-                                tagName: clickTarget.tagName,
-                                id: clickTarget.id,
-                                className: (typeof clickTarget.className === 'string' ? clickTarget.className : (clickTarget.className && typeof clickTarget.className.baseVal === 'string' ? clickTarget.className.baseVal : '')) || '',
-                                name: clickTarget.name,
-                                value: clickTarget.value,
-                                type: clickTarget.type
-                            }
-                            // NO switchToParentFrame here
-                        });
-                    };
-
-                    iframeDoc.addEventListener('click', iframeContentClickHandler, true); // Capture phase
-                    iframeClickHandlers.set(currentIframe, iframeContentClickHandler); // Register this specific handler
-                    console.log('[Content Iframe Debug] Click handler (iframeContentClickHandler) set up successfully for iframe:', currentIframe.src);
-                } catch (err) {
-                    console.warn('[Content Iframe Debug] Could not set up click handler for iframe (global focus):', currentIframe.src, err);
-                }
-            } else {
-                console.log('[Content Iframe Debug] Skipping click handler setup:', {
-                    isAccessible: isIframeAccessible(currentIframe),
-                    hasHandler: iframeClickHandlers.has(currentIframe)
+    } else { // Executing in the top window
+        if (ownerDoc === window.document) { // Focus is in the main document
+            if (topActiveIframeLocators) { // Check if an iframe was active (set by message listener)
+                console.log('[Content Top] Focus on main document, switching to parent frame from iframe:', topActiveIframeLocators.src || 'unknown src');
+                logEvent('switchToParentFrame', {
+                    timestamp: Date.now(), // Will be made relative by popup.js
+                    iframeLocators: topActiveIframeLocators // Locators of the iframe we are switching FROM
                 });
+                topActiveIframeLocators = null;
+                topLastLoggedFramePath = null;
+            }
+        }
+        // Focus *into* an iframe is now handled by the iframe itself posting a message.
+    }
+}, true);
+
+// Mousedown listener to detect clicks outside an active iframe, switching to parent frame.
+window.addEventListener('mousedown', (event) => {
+    console.log('[DEBUG] Mousedown', event.target);
+    if (!isEffectivelyRecording) {
+        return;
+    }
+
+    const clickedElement = event.target;
+    const ownerDoc = clickedElement.ownerDocument;
+
+    if (window.self !== window.top) { // Executing inside an iframe
+        // If mousedown is within this iframe's document, inform the top window.
+        const currentIframeElement = window.frameElement;
+        if (currentIframeElement) {
+            const framePath = getIframePath(currentIframeElement);
+            const locators = getIframeLocators(currentIframeElement);
+            console.log('[Content Iframe] Mousedown event in iframe, posting EnteredIframe. Path:', framePath);
+            window.top.postMessage({
+                type: 'SteepGraphRecorder_EnteredIframe',
+                framePath: framePath,
+                iframeLocators: locators,
+                iframeSrc: currentIframeElement.src,
+                timestamp: Date.now()
+            }, '*');
+        }
+    } else { // Executing in the top window
+        console.log('[DEBUG] Mousedown in document:', ownerDoc === window.document ? 'MAIN PAGE' : 'IFRAME');
+        if (ownerDoc === window.document) { // Click is in the main document
+            if (topActiveIframeLocators) { // If an iframe was considered active
+                console.warn('[Content Top DEBUG] Logged switchToParentFrame from main page mousedown.');
+                logEvent('switchToParentFrame', {
+                    timestamp: Date.now(), // Will be made relative by popup.js
+                    iframeLocators: topActiveIframeLocators // Locators of the iframe we are switching FROM
+                });
+                topActiveIframeLocators = null;
+                topLastLoggedFramePath = null;
             }
         }
     }
-}, true);
+}, true); // Use capture phase
+
+// Variables for top-level window to manage active iframe state
+let topActiveIframeLocators = null;
+let topLastLoggedFramePath = null;
+
+if (window.self === window.top) {
+    window.addEventListener('message', (event) => {
+        if (event.data?.type === 'SteepGraphRecorder_EnteredIframe') {
+            if (!isEffectivelyRecording) return;
+
+            console.log('[Content Top] Received SteepGraphRecorder_EnteredIframe message:', event.data);
+            topActiveIframeLocators = event.data.iframeLocators;
+
+            if (event.data.framePath && event.data.framePath !== topLastLoggedFramePath) {
+                logEvent('switchToFrame', {
+                    name: event.data.framePath, // This is the path like "frameA=>frameB"
+                    // The actual timestamp for the XML is relative and calculated in popup.js based on event.time
+                    // We store the iframe's event time in details for potential future use or more precise logging.
+                    timestampFromIframe: event.data.timestamp
+                });
+                topLastLoggedFramePath = event.data.framePath;
+                console.warn('[Content Top DEBUG] Logged switchToFrame from message. Path:', event.data.framePath);
+            } else if (event.data.framePath === topLastLoggedFramePath) {
+                console.log('[Content Top DEBUG] Received EnteredIframe for already active frame path, not logging switchToFrame again. Path:', event.data.framePath);
+            }
+        }
+    });
+}
 
 // Clean up iframe handlers when iframe is removed
 function cleanupIframeHandlers(iframe) {
@@ -954,14 +949,26 @@ function cleanupIframeHandlers(iframe) {
         iframeScrollHandlers.delete(iframe);
     }
     
-    if (iframe === activeIframeElement) {
-        logEvent('switchToParentFrame', {
-            timestamp: Date.now(),
-            iframeSrc: iframe.src,
-            iframeLocators: getIframeLocators(iframe)
-        });
-        activeIframeElement = null;
-    }
+    // This cleanup runs in the context where the iframe tag was (e.g., top window or another iframe).
+    // If it's the top window, check against topActiveIframeLocators.
+    if (window.self === window.top) {
+        if (topActiveIframeLocators) {
+            const removedIframeLocators = getIframeLocators(iframe);
+            // Basic check: if the src matches. A more robust check might compare IDs or full locator objects.
+            if (topActiveIframeLocators.src === removedIframeLocators.src ||
+                (topActiveIframeLocators.id && removedIframeLocators.id && topActiveIframeLocators.id === removedIframeLocators.id) ||
+                (topActiveIframeLocators.name && removedIframeLocators.name && topActiveIframeLocators.name === removedIframeLocators.name)
+            ) {
+                console.warn('[Content Top DEBUG] Logged switchToParentFrame from iframe removal. Removed iframe src:', iframe.src);
+                logEvent('switchToParentFrame', {
+                    timestamp: Date.now(),
+                    iframeLocators: topActiveIframeLocators // Log with the locators of the iframe that *was* active
+                });
+                topActiveIframeLocators = null;
+                topLastLoggedFramePath = null;
+            }
+        }
+    } // If not top, no special switchToParentFrame logic here based on topActiveIframeLocators
 }
 
 // Update the iframe observer to use the new cleanup function
@@ -1067,8 +1074,10 @@ function setupListenersInsideIframe(iframe) {
         // Update the 'iframeLoaded' event to indicate successful access
         // This requires finding the event in the log if background.js stores it before sending,
         // or simply logging a new event. For simplicity, we'll rely on console logs here.
-        // The crucial part is attaching the listeners.
 
+        // Attach a click listener to the iframe's document to log 'iframeClick' events
+        // This is for clicks *inside* this specific iframe's content.
+        // The iframeClickHandlers WeakMap is used by the parent to clean this up if the iframe tag is removed.
         // CLICK LISTENER
         // Click handling for iframes is now centralized in the global 'focus' event listener (around line 777+).
         // That listener attaches a click handler when an iframe gains focus.
