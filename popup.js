@@ -485,10 +485,10 @@ document.addEventListener('DOMContentLoaded', function () {
                     // Timestamp and other locators are intentionally removed as per the request.
                     break;
 
-                case 'switchToParentFrame': // New event type for switching to parent frame
-                    tagName = 'SwitchToParentFrame'; // Corrected casing
+                case 'SwitchToDefaultContent': // Event type for switching control back to the top-level document
+                    tagName = 'SwitchToDefaultContent';
                     eventAttributes = {
-                        timestamp: relativeTimestamp
+                        timestamp: relativeTimestamp // This tag only requires a timestamp
                     };
                     break;
 

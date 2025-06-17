@@ -836,8 +836,8 @@ window.addEventListener('focus', (event) => {
     } else { // Executing in the top window
         if (ownerDoc === window.document) { // Focus is in the main document
             if (topActiveIframeLocators) { // Check if an iframe was active (set by message listener)
-                console.log('[Content Top] Focus on main document, switching to parent frame from iframe:', topActiveIframeLocators.src || 'unknown src');
-                logEvent('switchToParentFrame', {
+                console.log('[Content Top] Focus on main document, logging SwitchToDefaultContent from iframe:', topActiveIframeLocators.src || 'unknown src');
+                logEvent('SwitchToDefaultContent', {
                     timestamp: Date.now(), // Will be made relative by popup.js
                     iframeLocators: topActiveIframeLocators // Locators of the iframe we are switching FROM
                 });
@@ -877,9 +877,9 @@ window.addEventListener('mousedown', (event) => {
     } else { // Executing in the top window
         console.log('[DEBUG] Mousedown in document:', ownerDoc === window.document ? 'MAIN PAGE' : 'IFRAME');
         if (ownerDoc === window.document) { // Click is in the main document
-            if (topActiveIframeLocators) { // If an iframe was considered active
-                console.warn('[Content Top DEBUG] Logged switchToParentFrame from main page mousedown.');
-                logEvent('switchToParentFrame', {
+            if (topActiveIframeLocators) { // If an iframe was considered active (meaning we were in an iframe context before this click)
+                console.warn('[Content Top DEBUG] Logged SwitchToDefaultContent from main page mousedown.');
+                logEvent('SwitchToDefaultContent', {
                     timestamp: Date.now(), // Will be made relative by popup.js
                     iframeLocators: topActiveIframeLocators // Locators of the iframe we are switching FROM
                 });
@@ -960,7 +960,7 @@ function cleanupIframeHandlers(iframe) {
                 (topActiveIframeLocators.name && removedIframeLocators.name && topActiveIframeLocators.name === removedIframeLocators.name)
             ) {
                 console.warn('[Content Top DEBUG] Logged switchToParentFrame from iframe removal. Removed iframe src:', iframe.src);
-                logEvent('switchToParentFrame', {
+                logEvent('SwitchToDefaultContent', {
                     timestamp: Date.now(),
                     iframeLocators: topActiveIframeLocators // Log with the locators of the iframe that *was* active
                 });
