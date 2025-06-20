@@ -162,7 +162,7 @@ function logEvent(type, details = {}) {
 // Utility: Get all three locator types (id, css, xpath) for an element
 function getElementLocator(el) {
     if (!el || !el.tagName) {
-        return { id: null, css: null, xpath: null };
+        return { id: null, name: null, css: null, xpath: null }; // Added name
     }
 
     // Helper function to escape strings for XPath literals
@@ -192,6 +192,7 @@ function getElementLocator(el) {
     }
 
     const foundId = el.id ? el.id : null;
+    const foundName = el.name ? el.name : null; // Get name attribute
 
     // CSS Selector Generation
     let foundCss = null;
@@ -277,7 +278,7 @@ function getElementLocator(el) {
     }
     const foundXpath = generateIndexedXPath(el);
 
-    return { id: foundId, css: foundCss, xpath: foundXpath };
+    return { id: foundId, name: foundName, css: foundCss, xpath: foundXpath };
 }
 // Track input value changes
 const inputLastValueMap = new WeakMap();
@@ -358,14 +359,20 @@ function attachInputListeners() {
 
         el.addEventListener('change', e => {
             if (!isEffectivelyRecording) return;
-            const allLocators = getElementLocator(e.target);
-            logEvent('selectChange', { // Changed event type from 'input' to 'selectChange'
-                value: e.target.value,
-                // type: 'select', // No longer needed as event type itself is specific
-                locators: allLocators // Locators of the select element
+            const selectElement = e.target;
+            const allLocators = getElementLocator(selectElement);
+            const selectedOption = selectElement.options[selectElement.selectedIndex];
+            const selectedText = selectedOption ? selectedOption.textContent.trim() : '';
+            
+            logEvent('selectChange', {
+                value: selectElement.value, // The value of the selected option
+                text: selectedText,         // The visible text of the selected option
+                locators: allLocators       // Locators of the <select> element
             });
         });
     });
+
+
 
     // Handle file inputs
     document.querySelectorAll('input[type="file"]').forEach(el => {
@@ -470,65 +477,6 @@ document.addEventListener('contextmenu', e => {
         locators: allLocators,
         tagName: e.target.tagName // Keep existing rightclick logging
     });
-});
-
-// --- Drag and Drop Functionality ---
-let draggedElement = null;
-let dragStartLocators = null; // Will store {id, css, xpath}
-
-// Drag over event (don't log every move, just prevent default to allow drop)
-document.addEventListener('dragover', e => {
-    if (!isEffectivelyRecording || !draggedElement) return;
-    e.preventDefault(); // Necessary to allow drop
-});
-
-// Drop event
-document.addEventListener('drop', e => {
-    if (!isEffectivelyRecording || !draggedElement) return;
-    e.preventDefault();
-    
-    const dropTarget = e.target;
-    const dropLocators = getElementLocator(dropTarget);
-    
-    logEvent('drop', {
-        sourceLocators: dragStartLocators,
-        targetLocators: dropLocators,
-        draggedTagName: draggedElement.tagName,
-        draggedId: draggedElement.id,
-        draggedClassName: draggedElement.className,
-        dropTargetTagName: dropTarget.tagName,
-        dropTargetId: dropTarget.id,
-        dropTargetClassName: dropTarget.className,
-        pageX: e.pageX,
-        pageY: e.pageY
-    });
-    
-    // Reset drag state
-    draggedElement = null;
-    dragStartLocators = null;
-});
-
-// Drag end event (in case drop happens outside valid drop targets)
-document.addEventListener('dragend', e => {
-    if (!isEffectivelyRecording) return;
-    
-    // Only log if we still have a reference to the dragged element
-    // but no drop was logged (drop outside valid target)
-    if (draggedElement) {
-        logEvent('dragend', {
-            locators: dragStartLocators, // Locators of the element that was being dragged
-            tagName: draggedElement.tagName,
-            id: draggedElement.id,
-            className: draggedElement.className,
-            pageX: e.pageX,
-            pageY: e.pageY,
-            cancelled: true
-        });
-        
-        // Reset drag state
-        draggedElement = null;
-        dragStartLocators = null;
-    }
 });
 
 // --- Send Keys (Arrow Keys) ---
@@ -1057,8 +1005,8 @@ function setupListenersInsideIframe(iframe) {
     });
 
     try {
-        const doc = iframe.contentDocument;
-        const win = iframe.contentWindow;
+        const doc = iframe.contentDocument;zzz
+        const win = iframe.contentWindow; // Removed stray 'zzz'
 
         if (!doc || !win) {
             console.warn('[Content Iframe Debug] Cannot access iframe content:', {

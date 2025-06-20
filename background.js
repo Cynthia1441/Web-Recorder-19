@@ -73,40 +73,60 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 
         chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-            if (tabs.length > 0) {
-                activeTabId = tabs[0].id;
-                if (chrome.runtime.lastError) {
-                    console.error("[Background] Error querying active tab:", chrome.runtime.lastError.message);
-                    sendResponse({ success: false, error: "Failed to query active tab" });
-                    return;
+            if (chrome.runtime.lastError) {
+                console.error("[Background] Error querying active tab for starting recording:", chrome.runtime.lastError.message);
+                sendResponse({ success: false, error: "Failed to get active tab: " + chrome.runtime.lastError.message });
+                return; // Exit if query itself failed
+            }
+
+            if (tabs && tabs.length > 0 && tabs[0] && typeof tabs[0].id === 'number') {
+                const currentTab = tabs[0];
+                activeTabId = currentTab.id;
+
+                // Warn if attempting to record on restricted URLs
+                if (currentTab.url && (currentTab.url.startsWith('chrome://') || currentTab.url.startsWith('chrome-extension://') || currentTab.url.startsWith('about:'))) {
+                    if (!currentTab.url.startsWith('about:blank')) { // about:blank is often fine due to manifest settings
+                         console.warn(`[Background] Attempting to start recording on a potentially restricted URL: ${currentTab.url}. Content script injection might fail.`);
+                    }
                 }
 
                 addEventToLog({
                     type: 'navigation',
                     time: new Date().toISOString(),
-                    details: { url: tabs[0].url }
+                    details: { url: currentTab.url, title: currentTab.title }
                 }, activeTabId);
 
                 chrome.tabs.query({}, (allTabs) => {
-                    allTabs.forEach(tab => {
-                        chrome.tabs.sendMessage(tab.id, {
-                            action: 'updateRecordingState',
-                            isRecording: true,
-                            isPaused: false
-                        })
-                        .catch(err => {
-                            console.warn(`[Background] Failed to send updateRecordingState (start) to tab ${tab.id}. Error: ${err.message}. Tab URL might be: ${tab.url}`);
+                    if (chrome.runtime.lastError) {
+                        console.warn("[Background] Error querying all tabs to update state:", chrome.runtime.lastError.message);
+                        // This isn't fatal for the active tab, but good to know.
+                    }
+                    if (allTabs) {
+                        allTabs.forEach(tab => {
+                            if (tab && typeof tab.id === 'number') { // Ensure tab and tab.id are valid
+                                chrome.tabs.sendMessage(tab.id, {
+                                    action: 'updateRecordingState',
+                                    isRecording: true,
+                                    isPaused: false
+                                })
+                                .catch(err => {
+                                    // Suppress warnings for common failures on chrome:// pages etc.
+                                    if (tab.url && !tab.url.startsWith('chrome://') && !tab.url.startsWith('chrome-extension://') && !tab.url.startsWith('about:')) {
+                                        console.warn(`[Background] Failed to send updateRecordingState (start) to tab ${tab.id}. Error: ${err.message}. Tab URL: ${tab.url}`);
+                                    }
+                                });
+                            }
                         });
-                    });
+                    }
                 });
                 sendResponse({ success: true, newState: { isRecording, isPaused } });
             } else {
-                console.warn("[Background] No active tab found.");
-                sendResponse({ success: false, error: "No active tab found" });
+                console.warn("[Background] No suitable active tab found to start recording.");
+                sendResponse({ success: false, error: "No active tab found. Please ensure a web page is active." });
             }
         });
 
-        return true;
+        return true; // Indicate asynchronous response
 
     } else if (message.action === 'stopRecording') {
         if (!isRecording) {
@@ -121,16 +141,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         currentFocusedWindowId = null;
 
         chrome.tabs.query({}, (tabs) => {
-            tabs.forEach(tab => {
-                chrome.tabs.sendMessage(tab.id, {
-                    action: 'updateRecordingState',
-                    isRecording: false,
-                    isPaused: false
-                })
-                .catch(err => {
-                    console.warn(`[Background] Failed to send updateRecordingState (stop) to tab ${tab.id}. Error: ${err.message}. Tab URL might be: ${tab.url}`);
+            if (chrome.runtime.lastError) {
+                console.warn("[Background] Error querying all tabs to update state on stop:", chrome.runtime.lastError.message);
+            }
+            if (tabs) {
+                tabs.forEach(tab => {
+                    if (tab && typeof tab.id === 'number') {
+                        chrome.tabs.sendMessage(tab.id, {
+                            action: 'updateRecordingState',
+                            isRecording: false,
+                            isPaused: false
+                        }).catch(err => { /* Suppress error for non-responsive tabs */ });
+                    }
                 });
-            });
+            }
         });
         sendResponse({ success: true, newState: { isRecording, isPaused } });
         chrome.contextMenus.remove("recordFindElement", () => {
@@ -147,11 +171,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         isPaused = true;
         addEventToLog({ type: 'pause', time: new Date().toISOString() }, activeTabId);
         chrome.tabs.query({}, (tabs) => {
-            tabs.forEach(tab => {
-                chrome.tabs.sendMessage(tab.id, { action: 'updateRecordingState', isRecording, isPaused })
-                .catch(err => console.warn(`[Background] Failed to send updateRecordingState (pause) to tab ${tab.id}. Error: ${err.message}. Tab URL might be: ${tab.url}`));
-
-            });
+            if (chrome.runtime.lastError) {
+                console.warn("[Background] Error querying all tabs to update state on pause:", chrome.runtime.lastError.message);
+            }
+            if (tabs) {
+                tabs.forEach(tab => {
+                    if (tab && typeof tab.id === 'number')
+                        chrome.tabs.sendMessage(tab.id, { action: 'updateRecordingState', isRecording, isPaused })
+                        .catch(err => { /* Suppress error for non-responsive tabs */ });
+                });
+            }
         });
         sendResponse({ success: true, newState: { isRecording, isPaused } });
         return true;
@@ -164,10 +193,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         isPaused = false;
         addEventToLog({ type: 'resume', time: new Date().toISOString() }, activeTabId);
         chrome.tabs.query({}, (tabs) => {
-            tabs.forEach(tab => { // Use forEach for clarity, though map/Promise.all is also an option
-                chrome.tabs.sendMessage(tab.id, { action: 'updateRecordingState', isRecording, isPaused })
-                .catch(err => console.warn(`[Background] Failed to send updateRecordingState (resume) to tab ${tab.id}. Error: ${err.message}. Tab URL might be: ${tab.url}`));
-            });
+            if (chrome.runtime.lastError) {
+                console.warn("[Background] Error querying all tabs to update state on resume:", chrome.runtime.lastError.message);
+            }
+            if (tabs) {
+                tabs.forEach(tab => {
+                    if (tab && typeof tab.id === 'number')
+                        chrome.tabs.sendMessage(tab.id, { action: 'updateRecordingState', isRecording, isPaused })
+                        .catch(err => { /* Suppress error for non-responsive tabs */ });                });
+            }
         });
         sendResponse({ success: true, newState: { isRecording, isPaused } });
         return true;
