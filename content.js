@@ -97,6 +97,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 });
 
+// Listen for the custom event dispatched by the injected script when an alert is handled.
+window.addEventListener('SteepGraphRecorder_AlertAction', (event) => {
+    if (!isEffectivelyRecording) {
+        return;
+    }
+    
+    const { action, type, message, value } = event.detail;
+    
+    // Log an event that will be converted to <HandleAlert>
+    logEvent('handleAlert', {
+        action: action, // 'accept' or 'dismiss'
+        dialogType: type, // 'alert', 'confirm', or 'prompt'
+        message: message,
+        inputValue: value // for prompt, will be undefined for others
+    });
+});
 // Function to show a temporary notification on the page
 function showPasswordEnteredNotification() {
     const existingNotification = document.getElementById('web-recorder-password-notification');
@@ -232,13 +248,48 @@ function getElementLocator(el) {
             // If it's a span.item-text but has no text, it will fall through to the general logic below.
         }
 
-        // Priority 2: Class-based XPath (non-indexed, matches user's requested format e.g., for icon clicks)
-        // Generates XPath like: //tag[contains(@class, 'actualFirstClass')]
+        // Priority 2: Class-based XPath.
+        // For <td> elements, this will be indexed to distinguish between cells.
+        // For other elements, it remains non-indexed for simplicity (e.g., icon clicks).
         if (el.classList && el.classList.length > 0) {
-            const firstClass = el.classList[0]; // Use the first class found
-            if (firstClass) { // Should be true if length > 0
-                const escapedClassName = escapeXPathStringLiteral(firstClass); // Use existing helper
-                return `//${tagName}[contains(@class, ${escapedClassName})]`;
+            const firstClass = el.classList[0];
+            if (firstClass) {
+                const escapedClassName = escapeXPathStringLiteral(firstClass);
+                const classBasedExpr = `//${tagName}[contains(@class, ${escapedClassName})]`;
+
+                // If the element is a TD, we must generate an indexed XPath to differentiate it from other TDs.
+                if (tagName === 'td') {
+                    try {
+                        const doc = el.ownerDocument || document;
+                        const result = doc.evaluate(
+                            classBasedExpr,
+                            doc,
+                            null,
+                            XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
+                            null
+                        );
+
+                        for (let i = 0; i < result.snapshotLength; i++) {
+                            if (result.snapshotItem(i) === el) {
+                                // If more than one element matches, use indexing.
+                                // If only one, the non-indexed version is fine.
+                                if (result.snapshotLength > 1) {
+                                    return `(${classBasedExpr})[${i + 1}]`;
+                                } else {
+                                    return classBasedExpr;
+                                }
+                            }
+                        }
+                        // Fallback if element not found in results (should not happen)
+                        return classBasedExpr;
+                    } catch (err) {
+                        console.warn('[Content getElementLocator] Error generating indexed XPath for TD:', err);
+                        return classBasedExpr; // Fallback in case of error
+                    }
+                } else {
+                    // For non-TD elements, return the simple, non-indexed class-based XPath.
+                    return classBasedExpr;
+                }
             }
         }
 
@@ -1005,8 +1056,8 @@ function setupListenersInsideIframe(iframe) {
     });
 
     try {
-        const doc = iframe.contentDocument;zzz
-        const win = iframe.contentWindow; // Removed stray 'zzz'
+        const doc = iframe.contentDocument;
+        const win = iframe.contentWindow;
 
         if (!doc || !win) {
             console.warn('[Content Iframe Debug] Cannot access iframe content:', {

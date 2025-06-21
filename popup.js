@@ -584,6 +584,21 @@ document.addEventListener('DOMContentLoaded', function () {
                     // assignLocatorsToAttributes(eventAttributes, e.locators);
                     break;
 
+                case 'handleAlert':
+                    tagName = 'HandleAlert';
+                    eventAttributes = {
+                        action: escapeXml(e.action || '') // 'accept' or 'dismiss'
+                    };
+                    // Add message and inputValue if they exist in the event details
+                    if (e.message) {
+                        eventAttributes.message = escapeXml(e.message);
+                    }
+                    // For prompts, the captured input value is useful
+                    if (e.dialogType === 'prompt' && e.inputValue !== null && e.inputValue !== undefined) {
+                        eventAttributes.inputValue = escapeXml(e.inputValue);
+                    }
+                    break;
+
                 case 'newTabOpenedByClick': // Handle the new event type
                     // e.title might be the preliminary title from onCreated, or the URL as a fallback.
                     // This event is informational. Actual tab/window switches are handled by

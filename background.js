@@ -10,6 +10,50 @@ let pendingFileDownloads = {}; // To store downloads before their filename/state
 let lastClickInitiatorInfo = null; // { tabId: number, timestamp: number } - To track clicks that might open new tabs
 let windowState = 'normal'; // Track window state: normal, maximized, minimized
 
+// This function will be executed in the page's context (MAIN world) to handle alerts.
+// It overrides native dialogs and dispatches a custom event that the content script can capture.
+function alertHandler() {
+    // Guard against multiple executions if script is injected more than once.
+    if (window.steepGraphAlertHandlerInjected) return;
+    window.steepGraphAlertHandlerInjected = true;
+
+    const originalAlert = window.alert;
+    const originalConfirm = window.confirm;
+    const originalPrompt = window.prompt;
+
+    const dispatch = (detail) => {
+        try {
+            // Dispatch a custom event that the content script can listen for.
+            window.dispatchEvent(new CustomEvent('SteepGraphRecorder_AlertAction', { detail }));
+        } catch (e) {
+            console.error('[Web Recorder] Error dispatching alert event:', e);
+        }
+    };
+
+    window.alert = function(message) {
+        const result = originalAlert.apply(this, arguments);
+        // An alert dialog only has an "OK" button, so the action is always 'accept'.
+        dispatch({ action: 'accept', type: 'alert', message: message });
+        return result;
+    };
+
+    window.confirm = function(message) {
+        const result = originalConfirm.apply(this, arguments);
+        // 'true' for OK (accept), 'false' for Cancel (dismiss).
+        const action = result ? 'accept' : 'dismiss';
+        dispatch({ action: action, type: 'confirm', message: message });
+        return result;
+    };
+
+    window.prompt = function(message, defaultValue) {
+        const result = originalPrompt.apply(this, arguments);
+        // 'null' for Cancel (dismiss), a string for OK (accept).
+        const action = (result !== null) ? 'accept' : 'dismiss';
+        dispatch({ action: action, type: 'prompt', message: message, value: result });
+        return result;
+    };
+}
+
 function addEventToLog(entry, tabId) {
     try {
         if (!entry.time) {
@@ -104,6 +148,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     if (allTabs) {
                         allTabs.forEach(tab => {
                             if (tab && typeof tab.id === 'number') { // Ensure tab and tab.id are valid
+                                // Inject the alert handler into the main world of the tab.
+                                // This is more robust than content script injection, especially against CSP.
+                                chrome.scripting.executeScript({
+                                    target: { tabId: tab.id, allFrames: true },
+                                    world: 'MAIN',
+                                    func: alertHandler
+                                }).catch(err => {
+                                    // Suppress warnings for common failures on chrome:// pages etc.
+                                    if (tab.url && !tab.url.startsWith('chrome://') && !tab.url.startsWith('chrome-extension://') && !tab.url.startsWith('about:')) {
+                                        console.warn(`[Background] Failed to inject alert handler (start) into tab ${tab.id}. Error: ${err.message}. Tab URL: ${tab.url}`);
+                                    }
+                                });
+
                                 chrome.tabs.sendMessage(tab.id, {
                                     action: 'updateRecordingState',
                                     isRecording: true,
@@ -525,8 +582,24 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 
 // Always update content script state on tab update (page load or reload)
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-    // Update content script state on page load/reload
-    if (changeInfo.status === "complete") {
+    // When a tab finishes loading, we need to ensure our scripts are in place if recording.
+    if (changeInfo.status === "complete" && tab) {
+        // If recording is active, inject the alert handler script into the page's main world.
+        // This is necessary for new pages loaded after recording has started.
+        if (isRecording && !isPaused) {
+            chrome.scripting.executeScript({
+                target: { tabId: tabId, allFrames: true },
+                world: 'MAIN',
+                func: alertHandler
+            }).catch(err => {
+                // Suppress warnings for common failures on chrome:// pages etc.
+                if (tab.url && !tab.url.startsWith('chrome://') && !tab.url.startsWith('chrome-extension://') && !tab.url.startsWith('about:')) {
+                    console.warn(`[Background] Failed to inject alert handler (onUpdated) into tab ${tabId}. Error: ${err.message}. Tab URL: ${tab.url}`);
+                }
+            });
+        }
+
+        // Always send the current recording state to the content script.
         chrome.tabs.sendMessage(tabId, {
             action: 'updateRecordingState',
             isRecording,
