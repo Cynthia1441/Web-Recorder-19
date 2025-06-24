@@ -365,71 +365,39 @@ chrome.webNavigation.onCommitted.addListener((details) => {
 });
 
 chrome.tabs.onActivated.addListener((activeInfo) => {
-    if (isRecording && !isPaused) { // Check isPaused
+    if (!isRecording || isPaused) {
+        return;
+    }
+
+    // Window switch logic is now in onFocusChanged.
+    // This listener only handles tab switches within the currently focused window.
+    if (activeInfo.windowId === currentFocusedWindowId && activeTabId !== activeInfo.tabId) {
         chrome.tabs.get(activeInfo.tabId, (tab) => {
-            if (chrome.runtime.lastError) {
-                console.error("[Background] Error getting tab info onActivated:", chrome.runtime.lastError.message);
+            if (chrome.runtime.lastError || !tab) {
+                console.error("[Background] Error getting tab info onActivated:", chrome.runtime.lastError?.message);
                 return;
             }
-            // We need to record the switch even if tab.url is initially empty (e.g. about:blank in a new window)
-            // The title and URL in the log details have fallbacks.
-            if (tab) { 
-                const newTabId = activeInfo.tabId;
-                const newWindowId = activeInfo.windowId;
 
-                if (newWindowId !== currentFocusedWindowId) {
-                    if (newWindowId === initialWindowId) {
-                        // Switched back to the initial window from another window
-                        addEventToLog({
-                            type: 'switchToParentWindow',
-                            time: new Date().toISOString(),
-                            details: {
-                                url: tab.url || '', // Ensure url is at least an empty string if undefined
-                                title: tab.title || tab.url || "Untitled Tab", // Added title
-                                windowId: newWindowId,
-                                tabId: newTabId
-                            }
-                        }, newTabId);
-                    } else {
-                        // Switched to a new, different window (not the initial one)
-                        // This is effectively a tab switch into a new window context
-                        addEventToLog({
-                            type: 'tabswitch', // This will become <switchtowindow>
-                            time: new Date().toISOString(),
-                            details: {
-                                url: tab.url || '', // Ensure url is at least an empty string
-                                title: tab.title || tab.url || "Untitled Tab",
-                                windowId: newWindowId,
-                                tabId: newTabId,
-                                previousWindowId: currentFocusedWindowId
-                            }
-                        }, newTabId);
-                    }
-                    currentFocusedWindowId = newWindowId; // Update current focused window
-                } else if (activeTabId !== newTabId) {
-                    // Tab switch within the same window
-                    addEventToLog({
-                        type: 'tabswitch', // This will also become <switchtowindow>
-                        time: new Date().toISOString(),
-                        details: {
-                            url: tab.url || '', // Ensure url is at least an empty string
-                            title: tab.title || tab.url || "Untitled Tab",
-                            windowId: newWindowId,
-                            tabId: newTabId
-                        }
-                    }, newTabId);
+            // Log the tab switch event
+            addEventToLog({
+                type: 'tabswitch',
+                time: new Date().toISOString(),
+                details: {
+                    url: tab.url || '',
+                    title: tab.title || tab.url || "Untitled Tab",
+                    windowId: activeInfo.windowId,
+                    tabId: activeInfo.tabId
                 }
+            }, activeInfo.tabId);
 
-                activeTabId = newTabId; // Update activeTabId regardless
+            activeTabId = activeInfo.tabId; // Update the active tab ID
 
-                // Notify content script of the current tab about recording state
-                // (might be redundant if content script already knows, but good for consistency)
-                chrome.tabs.sendMessage(activeTabId, {
-                    action: 'updateRecordingState',
-                    isRecording: true,
-                    isPaused: false
-                }).catch(err => console.warn(`[Background] Could not notify active tab ${activeTabId} onActivated: ${err.message}`));
-            }
+            // Notify the content script in the new tab about the recording state.
+            chrome.tabs.sendMessage(activeTabId, {
+                action: 'updateRecordingState',
+                isRecording: true,
+                isPaused: false
+            }).catch(err => console.warn(`[Background] Could not notify active tab ${activeTabId} onActivated: ${err.message}`));
         });
     }
 });
@@ -474,26 +442,86 @@ chrome.windows.onBoundsChanged.addListener((window) => {
     }
 });
 
-// Listen for window state changes directly
+// Listen for window focus changes and state changes
 chrome.windows.onFocusChanged.addListener((windowId) => {
-    if (isRecording && !isPaused && windowId !== chrome.windows.WINDOW_ID_NONE) { // Check isPaused
-        chrome.windows.get(windowId, {}, (window) => {
-            if (window.state !== windowState) {
-                const previousState = windowState;
-                windowState = window.state;
-                
-                addEventToLog({
-                    type: windowState === 'maximized' ? 'windowMaximize' : 
-                         (windowState === 'minimized' ? 'windowMinimize' : 'windowStateChange'),
-                    time: new Date().toISOString(),
-                    details: { 
-                        previousState: previousState,
-                        currentState: windowState 
-                    }
-                }, activeTabId ?? -1);
+    if (!isRecording || isPaused) {
+        return;
+    }
+
+    // If focus is lost to a non-Chrome window, do nothing until focus returns.
+    if (windowId === chrome.windows.WINDOW_ID_NONE) {
+        return;
+    }
+
+    // --- Window Switch Logic ---
+    // Check if the focus has switched to a different window.
+    if (windowId !== currentFocusedWindowId) {
+        const previousWindowId = currentFocusedWindowId;
+        currentFocusedWindowId = windowId; // Update state immediately
+
+        // Get details of the active tab in the newly focused window
+        chrome.tabs.query({ active: true, windowId: windowId }, (tabs) => {
+            if (chrome.runtime.lastError || !tabs || !tabs[0]) {
+                console.error(`[Background] Could not get active tab for newly focused window ${windowId}.`, chrome.runtime.lastError?.message);
+                return;
             }
+            const activeTab = tabs[0];
+            activeTabId = activeTab.id; // Update active tab ID
+
+            const eventDetails = {
+                url: activeTab.url || '',
+                title: activeTab.title || activeTab.url || "Untitled Tab",
+                windowId: windowId,
+                tabId: activeTab.id
+            };
+
+            if (windowId === initialWindowId) {
+                // Switched back to the initial ("parent") window.
+                addEventToLog({
+                    type: 'switchToParentWindow',
+                    time: new Date().toISOString(),
+                    details: eventDetails
+                }, activeTab.id);
+            } else {
+                // Switched to a new, different window.
+                eventDetails.previousWindowId = previousWindowId;
+                addEventToLog({
+                    type: 'tabswitch', // This becomes <SwitchToWindow>
+                    time: new Date().toISOString(),
+                    details: eventDetails
+                }, activeTab.id);
+            }
+
+            // Notify the content script in the newly focused tab about the recording state.
+            chrome.tabs.sendMessage(activeTabId, {
+                action: 'updateRecordingState',
+                isRecording: true,
+                isPaused: false
+            }).catch(err => console.warn(`[Background] Could not notify active tab ${activeTabId} onFocusChanged: ${err.message}`));
         });
     }
+
+    // --- Window State Change Logic (maximize, minimize, etc.) ---
+    chrome.windows.get(windowId, {}, (window) => {
+        if (chrome.runtime.lastError) {
+            console.warn(`[Background] Could not get window details for window ${windowId} onFocusChanged.`, chrome.runtime.lastError.message);
+            return;
+        }
+        if (window.state !== windowState) {
+            const previousState = windowState;
+            windowState = window.state;
+
+            addEventToLog({
+                type: windowState === 'maximized' ? 'windowMaximize' :
+                     (windowState === 'minimized' ? 'windowMinimize' : 'windowStateChange'),
+                time: new Date().toISOString(),
+                details: {
+                    previousState: previousState,
+                    currentState: windowState
+                }
+            }, activeTabId ?? -1);
+        }
+    });
 });
 
 chrome.downloads.onCreated.addListener((downloadItem) => {
