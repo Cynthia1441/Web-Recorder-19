@@ -344,6 +344,9 @@ document.addEventListener('DOMContentLoaded', function () {
             xml += `    <OpenURL\n        url="${escapeXml(currentUrl)}"\n        timestamp="1"\n    />\n\n`;
         }
 
+        // Add a static wait after Login or OpenURL
+        xml += `    <Wait time="5000" />\n \n`;
+
         if (!events || events.length === 0) {
             xml += `</TestCase>\n`;
             return xml;

@@ -238,17 +238,49 @@ function getElementLocator(el) {
 
         const tagName = el.tagName.toLowerCase();
 
-        // Priority 1: Specific span with 'item-text' class and text content
+        // Priority 0: Specific li with 'item' and 'active' classes
+        // If an <li> element has both 'item' and 'active' classes, use this specific XPath.
+        if (tagName === 'li' && el.classList && el.classList.contains('item') && el.classList.contains('active')) {
+            return `//li[contains(@class, 'item') and contains(@class, 'active')]`;
+        }
+
+        // Priority 1: Specific li with 'item' class, or fallback to text content
+        if (tagName === 'li') {
+            // If the li has the class 'item', prefer a class-based locator as requested.
+            if (el.classList && el.classList.contains('item')) {
+                // If an li.item is clicked, find the child span.item-text to create a more robust locator.
+                const itemTextSpan = el.querySelector('span.item-text');
+                if (itemTextSpan && itemTextSpan.textContent) {
+                    const textContent = itemTextSpan.textContent.trim();
+                    if (textContent) {
+                        const escapedText = escapeXPathStringLiteral(textContent);
+                        return `//span[contains(@class, 'item-text') and normalize-space()=${escapedText}]`;
+                    }
+                }
+                // Fallback to original behavior if no such span is found.
+                return `//li[contains(@class, 'item')]`;
+            }
+
+            // Otherwise, if it has text content, use that.
+            const textContent = el.textContent ? el.textContent.trim() : '';
+            if (textContent) { // Only apply if textContent is not an empty string
+                const escapedText = escapeXPathStringLiteral(textContent);
+                return `//li[contains(., ${escapedText})]`;
+            }
+        }
+
+        // Priority 2: Specific span with 'item-text' class and text content
         if (tagName === 'span' && el.classList && el.classList.contains('item-text')) {
             const textContent = el.textContent ? el.textContent.trim() : '';
             if (textContent) { // Only apply if textContent is not an empty string
-                const escapedText = escapeXPathStringLiteral(textContent); // Uses the helper function from getElementLocator's scope
+                const escapedText = escapeXPathStringLiteral(textContent);
+                // Use normalize-space() for a more robust match against the exact, trimmed text content.
                 return `//${tagName}[contains(@class,'item-text') and normalize-space()=${escapedText}]`;
             }
             // If it's a span.item-text but has no text, it will fall through to the general logic below.
         }
 
-        // Priority 2: Class-based XPath.
+        // Priority 3: Class-based XPath.
         // For <td> elements, this will be indexed to distinguish between cells.
         // For other elements, it remains non-indexed for simplicity (e.g., icon clicks).
         if (el.classList && el.classList.length > 0) {
@@ -293,7 +325,7 @@ function getElementLocator(el) {
             }
         }
 
-        // Priority 3: Fallback to indexed XPath by tag name if no classes or above conditions not met
+        // Priority 4: Fallback to indexed XPath by tag name if no classes or above conditions not met
         // Generates XPath like: (//tagname)[index]
         try {
             const simpleTagExpr = `//${tagName}`;
