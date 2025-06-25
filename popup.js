@@ -610,6 +610,20 @@ document.addEventListener('DOMContentLoaded', function () {
                     includeTag = false; 
                     break;
 
+                case 'dragAndDrop':
+                    tagName = 'DragAndDrop';
+                    const sourceLocs = e.source?.locators || {};
+                    const targetLocs = e.target?.locators || {};
+
+                    eventAttributes = {
+                        mode: "js",
+                        locatorType: "xpath", // As per requirement
+                        sourceLocatorExpression: escapeXml(sourceLocs.xpath || ''),
+                        targetLocatorExpression: escapeXml(targetLocs.xpath || '')
+                    };
+                    // This event type does not use the standard locator processing, so we just break.
+                    break;
+
                 default:
                     includeTag = false; // Ignore unknown event types
             }

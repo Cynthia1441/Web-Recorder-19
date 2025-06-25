@@ -647,24 +647,25 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
             for (let i = eventLog.length - 1; i >= 0; i--) {
                 const event = eventLog[i];
 
-                // Check if the event is a 'tabswitch' for the current tabId
-                // and occurred within a reasonable time window (e.g., 5 seconds)
-                if (event.type === 'tabswitch' &&
+                // Check if the event is a tab/window switch for the current tabId
+                // and occurred within a reasonable time window.
+                if ((event.type === 'tabswitch' || event.type === 'switchToParentWindow') &&
                     event.details &&
                     event.details.tabId === tabId && // tabId is from onUpdated listener parameters
-                    (new Date().getTime() - new Date(event.time).getTime()) < 5000) { // 5-second window
+                    (new Date().getTime() - new Date(event.time).getTime()) < 10000) { // Increased to 10-second window
 
                     const oldTitleInLog = event.details.title;
 
+                    // Only update if the new title is different and the old one was a placeholder.
                     // Update if the new title is different from the logged one,
                     // or if the logged one was a placeholder (like the URL or "Untitled Tab").
                     // We prefer the newTitle from changeInfo as it's directly from the update.
                     if (oldTitleInLog !== newTitle &&
                         (oldTitleInLog === event.details.url || oldTitleInLog === "Untitled Tab" || newTitle !== event.details.url)) {
-                        
+
                         // Avoid overwriting a good title with the URL, unless the old title was also a placeholder.
                         if (!(newTitle === event.details.url && oldTitleInLog && oldTitleInLog !== "Untitled Tab" && oldTitleInLog !== event.details.url)) {
-                            console.log(`[Background] Updating title for 'tabswitch' event. TabId: ${tabId}. Old: "${oldTitleInLog}", New: "${newTitle}"`);
+                            console.log(`[Background] Updating title for '${event.type}' event. TabId: ${tabId}. Old: "${oldTitleInLog}", New: "${newTitle}"`);
                             event.details.title = newTitle;
                         }
                     }
@@ -672,8 +673,8 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
                     break;
                 }
 
-                // Optimization: If we've checked too many events (e.g., >10) or gone too far back in time (e.g., >7s), stop.
-                if ((eventLog.length - 1 - i >= 10) || ((new Date().getTime() - new Date(event.time).getTime()) > 7000)) {
+                // Optimization: If we've checked too many events or gone too far back in time, stop.
+                if ((eventLog.length - 1 - i >= 15) || ((new Date().getTime() - new Date(event.time).getTime()) > 12000)) {
                     break;
                 }
             }

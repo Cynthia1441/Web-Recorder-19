@@ -609,6 +609,47 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
+// --- Drag and Drop ---
+let dragSourceElement = null;
+
+document.addEventListener('dragstart', (e) => {
+    if (!isEffectivelyRecording) return;
+    // The target of the event is the element being dragged
+    dragSourceElement = e.target;
+}, true);
+
+document.addEventListener('dragover', (e) => {
+    // Prevent default to allow drop. This is crucial for the 'drop' event to fire.
+    if (isEffectivelyRecording) {
+        e.preventDefault();
+    }
+}, true);
+
+document.addEventListener('drop', (e) => {
+    if (!isEffectivelyRecording || !dragSourceElement) {
+        return; // Not recording or no drag source was captured
+    }
+    // Prevent default action (like navigating to a link if the dragged element was a link)
+    e.preventDefault();
+
+    const dropTargetElement = e.target;
+
+    if (dragSourceElement && dropTargetElement) {
+        const sourceLocators = getElementLocator(dragSourceElement);
+        const targetLocators = getElementLocator(dropTargetElement);
+
+        logEvent('dragAndDrop', {
+            source: { locators: sourceLocators },
+            target: { locators: targetLocators }
+        });
+    }
+}, true);
+
+document.addEventListener('dragend', (e) => {
+    // Clean up after the drag operation ends, regardless of success
+    dragSourceElement = null;
+}, true);
+
 // --- Scroll Detection ---
 
 // For Window Scroll
